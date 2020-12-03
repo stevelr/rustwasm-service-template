@@ -1,0 +1,10 @@
+Cargo.lock
+/target
+pkg/
+wasm-pack.log
+worker/generated/
+wrangler.toml.*
+config.toml.*
+src/config.rs
+env
+

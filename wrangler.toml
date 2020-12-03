@@ -1,0 +1,6 @@
+name = "wasm-worker"
+type = "rust"
+account_id = "00000000000000000000000000000000"
+zone_id = "00000000000000000000000000000000"
+workers_dev = false
+route = "my.domain.com/*"

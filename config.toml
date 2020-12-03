@@ -1,0 +1,18 @@
+# Configuration for wasm-service
+
+[logging]
+# enable or disable logging
+enabled = true
+# logger should be "console" or "coralogix"
+logger = "console"
+# default subsystem name added to all log entries. Can be overridden in LogEvent.
+subsystem_name = "base"
+
+# settings for Coralogix logging service (applicable if logger="coralogix")
+[logging.coralogix]
+# api key - provided by Coralogix
+api_key = "00000000-0000-0000-0000-000000000000"
+# Application name added to each log entry
+application_name = "my-app"
+# api endpoint + common url path prefix; you probably don't need to change this
+endpoint = "https://api.coralogix.com/api/v1/logs"
