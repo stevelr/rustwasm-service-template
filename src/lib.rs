@@ -1,70 +1,81 @@
 /// wasm-service template
 ///
 use async_trait::async_trait;
-use serde_json::json;
-use service_logging::{log, prelude::*, CoralogixConfig, CoralogixLogger, LogQueue, Severity};
-#[cfg(target = "wasm32")]
-use service_loging::ConsoleLogger;
-
-use std::{fmt, rc::Rc, sync::Mutex};
+use serde::Serialize;
+use service_logging::{log, CoralogixConfig, CoralogixLogger};
 use wasm_bindgen::{prelude::*, JsValue};
-use wasm_service::{Context, Handler, Method::GET, Runnable};
+use wasm_service::{Context, Handler, HandlerReturn, Request, RunContext, Runnable, ServiceConfig};
 
 // compile-time config settings, defined in config.toml
 mod config;
 use config::CONFIG;
 
-// Errors for this crate
-#[derive(Debug)]
-enum Error {
-    Service(wasm_service::Error),
+/// Capture error and generate simple error page
+fn internal_error(e: impl std::error::Error) -> HandlerReturn {
+    HandlerReturn {
+        status: 500,
+        text: format!(
+            r#"<html><body>
+            <h1>Error</h1>
+            <p>Internal error has occurred: {:?}</p>
+            </body></html>"#,
+            e
+        ),
+    }
 }
 
-impl From<wasm_service::Error> for Error {
-    fn from(e: wasm_service::Error) -> Self {
-        Error::Service(e)
-    }
-}
-impl std::error::Error for Error {}
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{:?}", self)
-    }
+#[derive(Serialize)]
+struct Thing {
+    x: u32,
+    name: String,
 }
 
 struct MyHandler {}
-
 #[async_trait(?Send)]
-impl Handler<Error> for MyHandler {
+impl Handler for MyHandler {
     /// Process incoming Request
-    async fn handle(&self, ctx: &mut Context) -> Result<(), Error> {
-        // log all incoming http hits
-        log!(ctx, Severity::Verbose, _:"handler", method: ctx.method(), url: ctx.url());
+    async fn handle(&self, req: &Request, ctx: &mut Context) -> Result<(), HandlerReturn> {
+        use service_logging::Severity::{Info, Verbose};
+        use wasm_service::Method::GET;
+        // log all incoming requests
+        log!(ctx, Verbose, _:"handler", method: req.method(), url: req.url());
         // Content-Type for responses, unless overridden below
-        ctx.default_content_type("text/plain");
+        ctx.default_content_type("text/plain; charset=UTF-8");
 
-        match (ctx.method(), ctx.url().path()) {
+        match (req.method(), req.url().path()) {
             (GET, "/") => {
-                log!(ctx, Severity::Info, _:"root");
+                log!(ctx, Info, _:"root handler");
                 ctx.response().text("OK");
             }
             (GET, "/hello") => {
-                log!(ctx, Severity::Info, _:"hello");
+                log!(ctx, Info, _:"hello");
                 ctx.response().text("Hello world!");
             }
             (GET, "/defer") => {
-                log!(ctx, Severity::Info, _:"defer", task_count: 2);
                 ctx.defer(Box::new(Task::One(111)));
                 ctx.defer(Box::new(Task::Two(222)));
                 ctx.response().text("Hello world!");
             }
             (GET, "/json") => {
-                log!(ctx, Severity::Info, code:"json");
                 // Return a json object
-                let an_object = json!({ "x": 1, "found": true, "inner": { "names": ["Alice", "Bob", "Carol"] }});
+                let an_object = Thing {
+                    x: 100,
+                    name: "abc".to_string(),
+                };
                 ctx.response()
-                    .content_type("application/json")?
-                    .json(&an_object)?;
+                    .content_type("application/json")
+                    .unwrap()
+                    .json(&an_object)
+                    // if error occurs during json serialization, report to client
+                    .map_err(internal_error)?;
+            }
+            (GET, "/favicon.ico") => {
+                ctx.response()
+                    .content_type("image/x-icon")
+                    .unwrap()
+                    .header("Cache-control", "max-age:604800,public,immutable")
+                    .unwrap()
+                    .body(&FAVICON);
             }
             _ => {
                 ctx.response().status(404).text("Not Found");
@@ -83,15 +94,16 @@ enum Task {
 }
 
 /// Process deferred tasks - this function is called once per task
-#[async_trait(?Send)]
+#[async_trait]
 impl Runnable for Task {
-    async fn run(&self, lq: Rc<Mutex<LogQueue>>) {
+    async fn run(&self, ctx: &RunContext) {
+        use service_logging::Severity::Info;
         match self {
             Task::One(n) => {
-                log!(lq, Severity::Info, text: format!("One: {}", n));
+                log!(ctx, Info, text: format!("One: {}", n));
             }
             Task::Two(n) => {
-                log!(lq, Severity::Info, text: format!("Two: {}", n));
+                log!(ctx, Info, text: format!("Two: {}", n));
             }
         }
     }
@@ -101,8 +113,7 @@ impl Runnable for Task {
 #[wasm_bindgen]
 pub async fn main_entry(req: JsValue) -> Result<JsValue, JsValue> {
     let logger = match CONFIG.logging.logger.as_ref() {
-        #[cfg(target = "wasm32")]
-        "console" => ConsoleLogger::init(),
+        //"console" => ConsoleLogger::init(),
         "coralogix" => CoralogixLogger::init(CoralogixConfig {
             api_key: &CONFIG.logging.coralogix.api_key,
             application_name: &CONFIG.logging.coralogix.application_name,
@@ -116,5 +127,28 @@ pub async fn main_entry(req: JsValue) -> Result<JsValue, JsValue> {
             )));
         }
     };
-    wasm_service::service_request(req, logger, Box::new(MyHandler {})).await
+    wasm_service::service_request(
+        req,
+        ServiceConfig {
+            logger,
+            handlers: vec![Box::new(MyHandler {})],
+        },
+    )
+    .await
 }
+
+// contents of favicon.ico, a rusty-colored R
+const FAVICON: [u8; 318] = [
+    0, 0, 1, 0, 1, 0, 16, 16, 16, 0, 1, 0, 4, 0, 40, 1, 0, 0, 22, 0, 0, 0, 40, 0, 0, 0, 16, 0, 0,
+    0, 32, 0, 0, 0, 1, 0, 4, 0, 0, 0, 0, 0, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0,
+    0, 0, 0, 55, 127, 212, 0, 255, 255, 255, 0, 27, 109, 207, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 17, 17, 17, 17, 0, 1, 0, 0, 17, 17, 17, 17, 2, 1, 16, 0, 17,
+    17, 17, 16, 34, 1, 18, 34, 17, 17, 17, 0, 2, 17, 18, 34, 17, 17, 16, 2, 33, 17, 18, 34, 17, 17,
+    0, 34, 17, 17, 16, 34, 34, 34, 34, 33, 17, 17, 18, 34, 0, 0, 0, 2, 17, 17, 18, 34, 0, 0, 0, 0,
+    33, 17, 18, 34, 17, 17, 17, 0, 2, 17, 18, 34, 17, 17, 17, 16, 2, 17, 18, 34, 17, 17, 17, 16, 2,
+    17, 18, 34, 17, 17, 17, 0, 34, 17, 16, 0, 2, 34, 34, 34, 34, 17, 0, 34, 34, 2, 2, 2, 33, 17, 0,
+    0, 2, 34, 34, 32, 1, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
