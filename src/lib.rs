@@ -75,7 +75,7 @@ impl Handler for MyHandler {
                     .unwrap()
                     .header("Cache-control", "max-age:604800,public,immutable")
                     .unwrap()
-                    .body(&FAVICON);
+                    .body(FAVICON.to_vec());
             }
             _ => {
                 ctx.response().status(404).text("Not Found");
@@ -132,6 +132,7 @@ pub async fn main_entry(req: JsValue) -> Result<JsValue, JsValue> {
         ServiceConfig {
             logger,
             handlers: vec![Box::new(MyHandler {})],
+            //..Default::default()
         },
     )
     .await

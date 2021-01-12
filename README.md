@@ -24,13 +24,14 @@ where PROJECT is your project name.
 - Pick a host name for your service. If your domain is "example.com" and
   your service will be at "api.example.com", add 
   `route = "api.example.com/*"` to `wrangler.toml`, 
-  and add `api` as an AAAA entry
+  and add `api` as an AAAA entry with an IP address of "100::"
   in the DNS settings page on the Cloudflare account.
-- Important: Set SSL/TLS encryption mode to Full in your Cloudflare
-  domain settings.
+- Important: Set SSL/TLS encryption mode to Full (or Strict) 
+  in your Cloudflare domain settings.
 - Update `wrangler.toml` to set `account_id`, `zone_id`, and `route`
-- If you want to require https clients to use TLS 1.3 (more secure), 
-  edit `worker/worker.js` and follow the instructions near line 20
+- The worker is set by default to require TLSv1.3, which is considered
+  more secure than previous versions. If you want to accept TLSv1.2
+  additionally, change the condition expression in worker/worker.js
 
 ## Logging
 

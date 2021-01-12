@@ -16,17 +16,20 @@ async function handleRequest(event) {
     try {
         if (request.cf !== undefined) {
             const tlsVersion = request.cf.tlsVersion
-            // Allow only TLS 1.2 and 1.3
-            // To allow TLS 1.3 only (more secure), remove the test for TLSv1.2,
-            // and change the error message to say "... 1.3 or higher"
-            if (tlsVersion != "TLSv1.2" && tlsVersion != "TLSv1.3") {
+            // Using "Security by Default" principles, this is set to limit
+            // requests to at least TLS 1.3. If you need to enable TLS 1.2,
+            // modify the condition below to 
+            //   if (tlsVersion != "TLSv1.2" && tlsVersion != "TLSv1.3") {
+            if (tlsVersion != "TLSv1.3") {
                 return new Response(
-                    "Please use TLS version 1.2 or higher.", { status: 403, }
+                    "Please use TLS version 1.3 or higher.", { status: 403, }
                 );
             }
         }
 
-        // fully read body (synchronously) before calling Rust handler
+        // Fully read body (synchronously) before calling Rust handler.
+        // For protection against excessive uploads, the maximum data upload size
+        // can be set in dash.cloudflare.com -> Network -> "Maximum Upload Size"
         let input = new Map();
         input.set("body", new Uint8Array(await request.arrayBuffer()));
         input.set("method", request.method);
