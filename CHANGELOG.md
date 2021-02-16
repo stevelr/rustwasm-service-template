@@ -1,3 +1,8 @@
+## v0.2.6
+
+- upgraded dependencies (wasm-service 0.5)
+- added wee_alloc as default allocator
+
 
 ## v0.2.5
 

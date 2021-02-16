@@ -10,17 +10,11 @@ use wasm_service::{Context, Handler, HandlerReturn, Request, RunContext, Runnabl
 mod config;
 use config::CONFIG;
 
-/// Capture error and generate simple error page
-fn internal_error(e: impl std::error::Error) -> HandlerReturn {
-    HandlerReturn {
-        status: 500,
-        text: format!(
-            r#"<html><body>
-            <h1>Error</h1>
-            <p>Internal error has occurred: {:?}</p>
-            </body></html>"#,
-            e
-        ),
+cfg_if::cfg_if! {
+    if #[cfg(feature="wee_alloc")] {
+        // Use `wee_alloc` as the global allocator.
+        #[global_allocator]
+        static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
     }
 }
 
@@ -40,7 +34,9 @@ impl Handler for MyHandler {
         // log all incoming requests
         log!(ctx, Verbose, _:"handler", method: req.method(), url: req.url());
         // Content-Type for responses, unless overridden below
-        ctx.default_content_type("text/plain; charset=UTF-8");
+        ctx.response()
+            .content_type("text/plain; charset=utf-8")
+            .unwrap();
 
         match (req.method(), req.url().path()) {
             (GET, "/") => {
@@ -62,12 +58,15 @@ impl Handler for MyHandler {
                     x: 100,
                     name: "abc".to_string(),
                 };
-                ctx.response()
+                if let Err(e) = ctx
+                    .response()
                     .content_type("application/json")
                     .unwrap()
                     .json(&an_object)
+                {
                     // if error occurs during json serialization, report to client
-                    .map_err(internal_error)?;
+                    ctx.raise_internal_error(Box::new(e))
+                }
             }
             (GET, "/favicon.ico") => {
                 ctx.response()
@@ -122,7 +121,7 @@ pub async fn main_entry(req: JsValue) -> Result<JsValue, JsValue> {
         .map_err(|e| JsValue::from_str(&e.to_string()))?,
         _ => {
             return Err(JsValue::from_str(&format!(
-                "Invalid logger configured:'{}'",
+                "Invalid logger configured:\"{}\"",
                 CONFIG.logging.logger
             )));
         }
@@ -132,13 +131,14 @@ pub async fn main_entry(req: JsValue) -> Result<JsValue, JsValue> {
         ServiceConfig {
             logger,
             handlers: vec![Box::new(MyHandler {})],
-            //..Default::default()
+            ..Default::default()
         },
     )
     .await
 }
 
 // contents of favicon.ico, a rusty-colored R
+// To generate this table from your own .ico file, try hexdump -v -e '1/1 "%d,"' < favicon.ico
 const FAVICON: [u8; 318] = [
     0, 0, 1, 0, 1, 0, 16, 16, 16, 0, 1, 0, 4, 0, 40, 1, 0, 0, 22, 0, 0, 0, 40, 0, 0, 0, 16, 0, 0,
     0, 32, 0, 0, 0, 1, 0, 4, 0, 0, 0, 0, 0, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0,
